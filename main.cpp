@@ -1270,6 +1270,7 @@ struct PlaybackHandler : public Handler {
     uint32_t note_id = 0; // 0 if inactive, 1 << 31 | (track_index << 12) | (channel << 8) | note if active
     float phase_incr = 0.f;
     float volume = 0.f;
+    float lpf_mult = 0.1f; // higher = less filter, 1.0 = no filter
 
     // live only values
     float phase = 0.f;
@@ -1334,17 +1335,17 @@ struct PlaybackHandler : public Handler {
       while (next_update && synth->audio_tick >= next_update->tick) {
         if (next_update->is_tone_update) {
           ToneState &tone = synth->tones[next_update->data.tone_update.tone_index];
-
-          // preserve active only values
-          float phase_incr = tone.phase_incr;
-          float phase = tone.phase;
-          float smooth_volume = tone.smooth_volume;
-          tone = next_update->data.tone_update.state;
-          tone.phase = phase;
-          tone.smooth_volume = smooth_volume;
-          if (tone.volume <= 0.f) {
+          ToneState &next_tone = next_update->data.tone_update.state;
+          if (next_tone.note_id == 0 || next_tone.volume <= 0.f) {
+            // off
             tone.note_id = 0;
-            tone.phase_incr = phase_incr;
+            tone.volume = 0.f;
+          } else {
+            // on
+            tone.note_id = next_tone.note_id;
+            tone.volume = next_tone.volume;
+            tone.phase_incr = next_tone.phase_incr;
+            tone.lpf_mult = next_tone.lpf_mult;
           }
         } else {
           synth->channel_states[next_update->data.channel_update.channel_index] = next_update->data.channel_update.state;
@@ -1357,14 +1358,28 @@ struct PlaybackHandler : public Handler {
       for (size_t j = 0; j < N_TONES; j++) {
         ToneState &tone = synth->tones[j];
         ChannelState &channel = synth->channel_states[(tone.note_id >> 8) & 0xfffff];
+
+        // attack/decay smoothing (linear)
         tone.smooth_volume = tone.smooth_volume >= tone.volume ? std::max(tone.volume, tone.smooth_volume - TONE_DECAY) : std::min(tone.volume, tone.smooth_volume + TONE_ATTACK);
+        
+        // sawtooth wave
         float wave = (tone.phase / M_PI) - 1.0f;
         float sample = wave * tone.smooth_volume * 0.2f;
-        tone.lpf_state = tone.lpf_state + (sample - tone.lpf_state) * 0.1f;
+
+        // low-pass filter
+        tone.lpf_state = tone.lpf_state + (sample - tone.lpf_state) * tone.lpf_mult;
+
+        // mix left/right
         mix_left += tone.lpf_state * channel.volume_left;
         mix_right += tone.lpf_state * channel.volume_right;
+
+        // advance phase
         tone.phase += tone.phase_incr;
         if (tone.phase > 2.f * M_PI) tone.phase -= 2.f * M_PI;
+
+        // fade
+        tone.lpf_mult *= 0.99995f; // high frequencies fade faster
+        tone.volume *= 0.99999f; // volume fades out over time
       }
       float scale = 1.f / std::max({1.f, std::abs(mix_left), std::abs(mix_right)});
       out[i * 2] = mix_left * scale;
@@ -1434,6 +1449,10 @@ struct PlaybackHandler : public Handler {
     return std::pow((float)velocity / 127.f, 2.f);
   }
 
+  inline float get_note_lpf_mult(uint8_t velocity) {
+    return 0.05f + 0.15f * std::pow((float)velocity / 127.f, 2.f);
+  }
+
   void push_note_update(uint64_t track_tick, ToneState state) {
     size_t tone_index;
     auto it = note_tone_map.find(state.note_id);
@@ -1487,11 +1506,11 @@ struct PlaybackHandler : public Handler {
   }
 
   void on_note_on(uint16_t track_index, uint64_t track_tick, uint8_t channel, uint8_t note, uint8_t velocity) override {
-    push_note_update(track_tick, ToneState{.note_id = get_note_id(track_index, channel, note), .phase_incr = get_note_phase_incr(note), .volume = get_note_volume(velocity)});
+    push_note_update(track_tick, ToneState{.note_id = get_note_id(track_index, channel, note), .phase_incr = get_note_phase_incr(note), .volume = get_note_volume(velocity), .lpf_mult = get_note_lpf_mult(velocity)});
   }
 
   void on_note_off(uint16_t track_index, uint64_t track_tick, uint8_t channel, uint8_t note, uint8_t velocity) override {
-    push_note_update(track_tick, ToneState{.note_id = get_note_id(track_index, channel, note), .phase_incr = 0.f, .volume = 0.f});
+    push_note_update(track_tick, ToneState{.note_id = get_note_id(track_index, channel, note), .phase_incr = 0.f, .volume = 0.f, .lpf_mult = 0.f});
   }
 
   void set_pan(uint16_t track_index, uint64_t track_tick, uint8_t channel, uint8_t value, bool msb) override {
