@@ -1261,7 +1261,7 @@ public:
 // playback notes (assumes SequentialHandler is used to ensure events are in order)
 struct PlaybackHandler : public Handler {
   const static uint32_t SAMPLE_RATE = 44100;
-  constexpr static float TONE_ATTACK = 100.f / (float)SAMPLE_RATE; // volume attack per audio tick
+  constexpr static float TONE_ATTACK = 200.f / (float)SAMPLE_RATE; // volume attack per audio tick
   constexpr static float TONE_DECAY = 5.f / (float)SAMPLE_RATE; // volume decay per audio tick
   const static size_t N_TONES = 64;
   const static size_t UPDATE_BUFF_SIZE = 1024; // must be power of 2 for ring buffer
@@ -1312,7 +1312,7 @@ struct PlaybackHandler : public Handler {
   ToneState buff_tones[N_TONES] = {}; // active tone state at buffered time
   uint64_t tone_last_update_tick[N_TONES] = {}; // last audio tick that tone was updated at
   std::vector<ChannelState> buff_channel_states; // channel states at buffered time
-  std::unordered_map<uint64_t, size_t> note_tone_map; // map from note id to tone index
+  std::unordered_map<uint32_t, size_t> note_tone_map; // map from note id to tone index
   TimeTracker time_tracker;
 
   struct SynthState {
@@ -1511,6 +1511,12 @@ struct PlaybackHandler : public Handler {
 
   void on_note_off(uint16_t track_index, uint64_t track_tick, uint8_t channel, uint8_t note, uint8_t velocity) override {
     push_note_update(track_tick, ToneState{.note_id = get_note_id(track_index, channel, note), .phase_incr = 0.f, .volume = 0.f, .lpf_mult = 0.f});
+  }
+
+  void all_notes_off(uint16_t track_index, uint64_t track_tick) override {
+    for (auto [note_id, tone_index] : note_tone_map) {
+      push_note_update(track_tick, ToneState{.note_id = note_id, .phase_incr = 0.f, .volume = 0.f, .lpf_mult = 0.f});
+    }
   }
 
   void set_pan(uint16_t track_index, uint64_t track_tick, uint8_t channel, uint8_t value, bool msb) override {
