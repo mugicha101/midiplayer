@@ -1385,7 +1385,7 @@ struct PlaybackHandler : public Handler {
       out[i * 2] = mix_left * scale;
       out[i * 2 + 1] = mix_right * scale;
     }
-    synth->inactive_time = next_update || std::any_of(std::begin(synth->tones), std::end(synth->tones), [](const ToneState &tone) { return tone.smooth_volume > 0.f; }) ? 0 : synth->inactive_time + frameCount;
+    synth->inactive_time = next_update ? 0 : synth->inactive_time + frameCount;
     // std::cout << synth->audio_tick << " " << (next_update ? next_update->tick : 0) << std::endl;
   }
 
