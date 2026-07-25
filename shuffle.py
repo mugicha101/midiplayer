@@ -26,7 +26,16 @@ def main():
     random.shuffle(songs)
     for song in songs:
       print(f"Playing {os.path.basename(song)}")
-      subprocess.run([script_path, song])
+      prompt = False
+      try:
+        subprocess.run([script_path, song], stdout=subprocess.DEVNULL)
+      except KeyboardInterrupt:
+        prompt = True
+      if prompt:
+        try:
+          input("enter to continue to next song, Ctrl+C to exit")
+        except (EOFError, KeyboardInterrupt):
+          return
 
 if __name__ == "__main__":
     main()
