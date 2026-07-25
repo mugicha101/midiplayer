@@ -4,6 +4,11 @@ import random
 import subprocess
 
 def main():
+  script_path = "./a.exe" if sys.platform == "win32" else "./a.out"
+  if not os.path.exists(script_path):
+    print(f"Error: {script_path} not found. Please compile main.cpp first.")
+    sys.exit(1)
+    
   # find files
   path = "."
   songs = []
@@ -21,7 +26,7 @@ def main():
     random.shuffle(songs)
     for song in songs:
       print(f"Playing {os.path.basename(song)}")
-      subprocess.run(["./a.out", song])
+      subprocess.run([script_path, song])
 
 if __name__ == "__main__":
     main()

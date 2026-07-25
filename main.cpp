@@ -1,6 +1,8 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
+constexpr float MA_PI_2 = MA_PI * 0.5f;
+
 #include <cstring>
 #include <iostream>
 #include <cstdint>
@@ -477,7 +479,7 @@ uint64_t validate_chunk_type(FileContext &ctx, const char *expected) {
   char chunk_type[4];
   ctx.read(chunk_type, 4);
 
-  if (std::strcmp(chunk_type, expected) != 0) {
+  if (std::memcmp(chunk_type, expected, 4) != 0) {
     std::cerr << "Invalid chunk type: expected " << expected << ", got " << chunk_type << std::endl;
     return false;
   }
@@ -1287,8 +1289,8 @@ struct PlaybackHandler : public Handler {
     void update_volume() {
       float volume = (volume_msb << 7 | volume_lsb) / 16383.f;
       float pan = ((pan_msb << 7 | pan_lsb) / 16383.f); // 0 to 1
-      volume_left = volume * cosf(pan * M_PI_2);
-      volume_right = volume * sinf(pan * M_PI_2);
+      volume_left = volume * cosf(pan * MA_PI_2);
+      volume_right = volume * sinf(pan * MA_PI_2);
     }
   };
   struct ToneUpdate {
@@ -1363,7 +1365,7 @@ struct PlaybackHandler : public Handler {
         tone.smooth_volume = tone.smooth_volume >= tone.volume ? std::max(tone.volume, tone.smooth_volume - TONE_DECAY) : std::min(tone.volume, tone.smooth_volume + TONE_ATTACK);
         
         // sawtooth wave
-        float wave = (tone.phase / M_PI) - 1.0f;
+        float wave = (tone.phase / MA_PI) - 1.0f;
         float sample = wave * tone.smooth_volume * 0.2f;
 
         // low-pass filter
@@ -1375,7 +1377,7 @@ struct PlaybackHandler : public Handler {
 
         // advance phase
         tone.phase += tone.phase_incr;
-        if (tone.phase > 2.f * M_PI) tone.phase -= 2.f * M_PI;
+        if (tone.phase > 2.f * MA_PI) tone.phase -= 2.f * MA_PI;
 
         // fade
         tone.lpf_mult *= 0.99995f; // high frequencies fade faster
@@ -1399,7 +1401,10 @@ struct PlaybackHandler : public Handler {
     device_config.sampleRate = SAMPLE_RATE;
     device_config.dataCallback = data_callback;
     device_config.pUserData = &synth;
+    device_config.periodSizeInFrames = 2048;
     device_config.periods = 4;
+    device_config.noFixedSizedCallback = MA_TRUE;
+
     if (ma_device_init(NULL, &device_config, &device) != MA_SUCCESS) {
       std::cerr << "Failed to initialize playback device.\n";
       exit(1);
@@ -1442,7 +1447,7 @@ struct PlaybackHandler : public Handler {
   }
 
   inline float get_note_phase_incr(uint8_t note) {
-    return 2.f * M_PI * 440.f * powf(2.f, (note - 69) / 12.f) / (float)SAMPLE_RATE;
+    return 2.f * MA_PI * 440.f * powf(2.f, (note - 69) / 12.f) / (float)SAMPLE_RATE;
   }
 
   inline float get_note_volume(uint8_t velocity) {
